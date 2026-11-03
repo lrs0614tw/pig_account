@@ -7,7 +7,7 @@ import tempfile
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from datetime import datetime
-from settlement_excel import export_monthly, parse_pay_date, roc_date, display_date
+from settlement_excel import export_monthly, parse_pay_date, roc_date, display_date, monthly_path
 from settlement_documents import (export_directory, available_path, create_detail_document,
                                   create_expense_document, create_market_fee_document, market_fee_template, create_collection_document)
 import win32com.client as win32
@@ -843,11 +843,6 @@ class PigSettlementApp:
 
         # 2. 套印 Word；Excel 已完成時明確提示，避免誤以為整批未寫入。
         output_errors = []
-        try:
-            snapshot = available_path(output_dir, excel_path.name)
-            shutil.copy2(excel_path, snapshot)
-        except Exception as exc:
-            output_errors.append(f"月份主帳本已寫入，但輸出副本失敗：{exc}")
         word_error = None
         try:
             self.preview_word_documents(pay_date, chinese_voucher, output_dir, detail_path, expense_paths)
@@ -874,8 +869,16 @@ class PigSettlementApp:
         self.load_draft_list()
 
     def export_to_excel_sheet(self, pay_date):
+        date = parse_pay_date(pay_date)
+        legacy = monthly_path(BASE_FOLDER, date)
+        target = monthly_path(EXPORT_FOLDER, date)
+        if legacy.exists():
+            if target.exists():
+                raise ValueError('新舊位置都有同月份帳本，請先確認要使用哪份；未覆蓋任何帳本。')
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.rename(legacy, target)
         return export_monthly(
-            BASE_FOLDER, os.path.join(TEMPLATE_FOLDER, "每日工作頁.xlsm"),
+            EXPORT_FOLDER, os.path.join(TEMPLATE_FOLDER, "每日工作頁.xlsm"),
             pay_date, self.current_farmers, self.ent_auction_date.get().strip())
 
     def create_detail_output(self, output_dir, preview=False):

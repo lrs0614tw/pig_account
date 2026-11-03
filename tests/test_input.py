@@ -164,11 +164,13 @@ class InputTests(unittest.TestCase):
             write.assert_not_called()
             self.assertEqual(self.app.current_farmers, records)
 
-    def test_finalize_saves_daily_snapshot_and_word(self):
+    def test_finalize_keeps_monthly_excel_outside_date_folder(self):
         self.fill()
         self.app.add_farmer_to_list()
         with TemporaryDirectory() as directory:
-            master = Path(directory) / '豬款115.11.xlsm'
+            exports = Path(directory) / 'exports'
+            exports.mkdir()
+            master = exports / '豬款115.11.xlsm'
             master.write_bytes(b'monthly master unchanged by copying')
             exports = Path(directory) / 'exports'
             with patch.object(app_module, 'EXPORT_FOLDER', exports), \
@@ -181,13 +183,33 @@ class InputTests(unittest.TestCase):
                 self.app.finalize_batch()
             snapshots = list(exports.rglob('*.xlsm'))
             self.assertEqual(len(snapshots), 1)
-            self.assertEqual(snapshots[0].read_bytes(), master.read_bytes())
+            self.assertEqual(snapshots[0], master)
             self.assertEqual(len(list(exports.rglob('1.*.docx'))), 1)
             self.assertEqual(len(list(exports.rglob('2.*.docx'))), 1)
             self.assertEqual(len(list(exports.rglob('3.*.docx'))), 1)
             self.assertEqual(len(list(exports.rglob('0.南投手續費.docx'))), 1)
             preview.assert_called_once()
             self.assertEqual(self.app.current_farmers, [])
+
+    def test_monthly_export_location_and_legacy_move(self):
+        with TemporaryDirectory() as directory:
+            base = Path(directory) / 'app'
+            base.mkdir()
+            exports = Path(directory) / 'exports'
+            legacy = base / '豬款115.11.xlsm'
+            legacy.write_bytes(b'existing ledger')
+            with patch.object(app_module, 'BASE_FOLDER', str(base)), \
+                 patch.object(app_module, 'EXPORT_FOLDER', str(exports)), \
+                 patch.object(app_module, 'export_monthly') as export:
+                self.app.export_to_excel_sheet('115-11-03')
+                self.assertEqual(export.call_args.args[0], str(exports))
+                self.assertEqual((exports / legacy.name).read_bytes(), b'existing ledger')
+                self.assertFalse(legacy.exists())
+                legacy.write_bytes(b'conflicting ledger')
+                with self.assertRaises(ValueError):
+                    self.app.export_to_excel_sheet('115-11-03')
+                self.assertEqual((exports / legacy.name).read_bytes(), b'existing ledger')
+                self.assertEqual(legacy.read_bytes(), b'conflicting ledger')
 
     def test_expense_preview_does_not_finalize(self):
         self.fill()
