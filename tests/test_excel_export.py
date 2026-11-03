@@ -42,6 +42,18 @@ class NativeExcelTests(unittest.TestCase):
             book = openpyxl.load_workbook(path, data_only=True)
             original = openpyxl.load_workbook(template)
             sheet, overflow = book['1103'], book[second]
+            self.assertEqual(book.sheetnames, ['月報表', '1103', '1103-2'])
+            report = book['月報表']
+            self.assertEqual([report[c].value for c in ('C11', 'D11', 'F11')], [80, 84000, 80])
+            self.assertEqual(report['C2'].value, '115年11月')
+            monthly = openpyxl.load_workbook(template.with_name('月報表.xlsm'))
+            for row in monthly['月報表']:
+                for cell in row:
+                    self.assertEqual(copy(report[cell.coordinate].border), copy(cell.border), cell.coordinate)
+                    self.assertEqual(copy(report[cell.coordinate].font), copy(cell.font), cell.coordinate)
+                    if cell.coordinate not in ('A1', 'C2', 'D2', 'C11', 'D11', 'F11'):
+                        self.assertEqual(report[cell.coordinate].value, cell.value, cell.coordinate)
+            monthly.close()
             self.assertEqual(sheet['O13'].value, 10390)
             self.assertEqual(sheet['O15'].value, 10400)
             self.assertEqual(overflow['O17'].value, 10390 * 7)
@@ -68,13 +80,35 @@ class NativeExcelTests(unittest.TestCase):
             self.assertEqual(len(backups), 1)
             self.assertFalse(list(Path(folder).glob('*.backup-*.xlsm')))
             backup_book = openpyxl.load_workbook(backups[0], data_only=True)
-            self.assertEqual(backup_book.sheetnames, ['1103'])
+            self.assertEqual(backup_book.sheetnames, ['月報表', '1103'])
             self.assertEqual(backup_book['1103']['O15'].value, 10400)
             backup_book.close()
             book.close()
             original.close()
             path2, _ = export_monthly(folder, template, '2027-01-02', [farmer], '2026-11-02')
             self.assertEqual(path2.name, '豬款116.01.xlsm')
+            next_month = openpyxl.load_workbook(path2, data_only=True)
+            self.assertEqual([next_month['月報表'][c].value for c in ('C11', 'D11', 'F11')], [10, 10500, 10])
+            self.assertEqual(next_month['月報表']['C2'].value, '116年1月')
+            next_month.close()
+            # Upgrade an existing workbook that predates monthly reports.
+            import win32com.client as win32
+            excel = win32.gencache.EnsureDispatch(win32.DispatchEx('Excel.Application'))
+            excel.DisplayAlerts = False
+            excel.AutomationSecurity = 3
+            try:
+                legacy = excel.Workbooks.Open(str(path2.resolve()), UpdateLinks=0)
+                legacy.Worksheets('月報表').Delete()
+                legacy.Save()
+                legacy.Close(False)
+            finally:
+                excel.Quit()
+            export_monthly(folder, template, '116-01-03', [farmer], '115-11-02')
+            upgraded = openpyxl.load_workbook(path2, data_only=True)
+            self.assertEqual(upgraded.sheetnames, ['月報表', '0102', '0103'])
+            self.assertEqual([upgraded['月報表'][c].value for c in ('C11', 'D11', 'F11')], [20, 21000, 20])
+            upgraded.close()
+
 
 
 if __name__ == '__main__':

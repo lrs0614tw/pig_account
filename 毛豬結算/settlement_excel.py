@@ -2,6 +2,7 @@
 from datetime import datetime
 from pathlib import Path
 import os
+import re
 import shutil
 import tempfile
 
@@ -83,6 +84,9 @@ def export_monthly(folder, template, pay_date, farmers, auction_date):
     template = Path(template).resolve()
     if not template.is_file():
         raise FileNotFoundError(f'找不到每日工作頁範本：{template}')
+    monthly_template = template.with_name('月報表.xlsm')
+    if not monthly_template.is_file():
+        raise FileNotFoundError(f'找不到月報表範本：{monthly_template}')
     rows = payment_rows(farmers, auction_date)
     if not rows:
         raise ValueError('沒有可匯出的明細。')
@@ -92,10 +96,12 @@ def export_monthly(folder, template, pay_date, farmers, auction_date):
         staging = Path(temp_dir) / target.name
         local_template = Path(temp_dir) / 'daily_template.xlsm'
         shutil.copy2(template, local_template)
+        local_monthly = Path(temp_dir) / 'monthly_template.xlsm'
+        shutil.copy2(monthly_template, local_monthly)
         if initial_stat:
             shutil.copy2(target, staging)
         excel = win32.gencache.EnsureDispatch(win32.DispatchEx('Excel.Application'))
-        workbook = source = None
+        workbook = source = monthly_source = None
         try:
             excel.Visible = False
             excel.DisplayAlerts = False
@@ -151,6 +157,30 @@ def export_monthly(folder, template, pay_date, farmers, auction_date):
             sheet.PageSetup.FitToPagesWide = 1
             sheet.PageSetup.FitToPagesTall = False
             sheet.PageSetup.PrintTitleRows = '$1:$2'
+            # Copy only the report sheet, never historical daily sheets in a template.
+            if '月報表' not in {item.Name for item in workbook.Worksheets}:
+                monthly_source = excel.Workbooks.Open(str(local_monthly), UpdateLinks=0, ReadOnly=True)
+                monthly_source.Worksheets('月報表').Copy(Before=workbook.Worksheets(1))
+            report = workbook.Worksheets('月報表')
+            if report.Index != 1:
+                report.Move(Before=workbook.Worksheets(1))
+            report.Range('A1').Value = f'土庫鎮農會{date.year - 1911}年{date.month}月份供銷部業務月報表：'
+            report.Range('C2:D2').Value = ((f'{date.year - 1911}年{date.month}月',) * 2,)
+            references = {column: [] for column in ('H', 'I', 'L')}
+            for daily in workbook.Worksheets:
+                if not re.fullmatch(date.strftime('%m') + r'\d{2}(?:-\d+)?', daily.Name):
+                    continue
+                # Locate the footer so inserted overflow rows are included.
+                labels = daily.Range(f'P1:P{daily.UsedRange.Row + daily.UsedRange.Rows.Count - 1}').Value
+                totals = [i for i, value in enumerate(labels, 1) if value[0] == '總金額']
+                if len(totals) != 1 or totals[0] < 6:
+                    raise ValueError(f'工作頁「{daily.Name}」找不到唯一的總金額列，未更新帳本。')
+                last_row = totals[0] - 3
+                for column in references:
+                    references[column].append(f"'{daily.Name}'!{column}3:{column}{last_row}")
+            for address, column in [('C11', 'H'), ('D11', 'I'), ('F11', 'L')]:
+                report.Range(address).Formula = '=SUM(' + ','.join(references[column]) + ')'
+            report.Activate()
             excel.Calculate()
             workbook.SaveAs(str(staging.resolve()), FileFormat=52)
         finally:
@@ -159,6 +189,8 @@ def export_monthly(folder, template, pay_date, farmers, auction_date):
                     workbook.Close(SaveChanges=False)
                 if source is not None:
                     source.Close(SaveChanges=False)
+                if monthly_source is not None:
+                    monthly_source.Close(SaveChanges=False)
             finally:
                 excel.Quit()
         if initial_stat:
