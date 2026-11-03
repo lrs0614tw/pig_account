@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import tempfile
+from contextlib import contextmanager
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from datetime import datetime
@@ -826,7 +827,7 @@ class PigSettlementApp:
 
         # 先產生明細表，範本失敗時不寫入月份主帳本。
         try:
-            output_dir = export_directory(EXPORT_FOLDER)
+            output_dir = export_directory(EXPORT_FOLDER, parse_pay_date(pay_date))
             detail_path = self.create_detail_output(output_dir)
             expense_paths = self.create_expense_outputs(output_dir, pay_date, chinese_voucher)
             expense_paths.append(self.create_collection_output(output_dir, pay_date))
@@ -891,6 +892,27 @@ class PigSettlementApp:
         os.makedirs(EXPORT_FOLDER, exist_ok=True)
         os.startfile(EXPORT_FOLDER)
 
+    @contextmanager
+    def preview_directory(self):
+        # Word keeps the source open; clean only this preview's temporary files
+        # after its window closes, without touching exports or other documents.
+        directory = tempfile.mkdtemp(prefix="pig_account_preview_")
+        try:
+            yield directory
+        finally:
+            self._clean_preview_directory(directory)
+
+    def _clean_preview_directory(self, directory):
+        try:
+            for name in os.listdir(directory):
+                try:
+                    os.remove(os.path.join(directory, name))
+                except OSError:
+                    pass  # Still open in Word; retry while the app is running.
+            os.rmdir(directory)
+        except OSError:
+            self.root.after(5000, lambda: self._clean_preview_directory(directory))
+
     def preview_detail_only(self):
         if not self.require_saved_input():
             return
@@ -898,12 +920,13 @@ class PigSettlementApp:
             messagebox.showwarning("提示", "請先加入至少一筆豬單。")
             return
         try:
-            path = self.create_detail_output(export_directory(EXPORT_FOLDER), preview=True)
-            word_app = win32.gencache.EnsureDispatch('Word.Application')
-            word_app.Visible = True
-            doc = word_app.Documents.Open(str(path.resolve()))
-            doc.Activate()
-            doc.ActiveWindow.View.Type = 3  # Print layout.
+            with self.preview_directory() as preview_dir:
+                path = self.create_detail_output(preview_dir, preview=True)
+                word_app = win32.gencache.EnsureDispatch('Word.Application')
+                word_app.Visible = True
+                doc = word_app.Documents.Open(str(path.resolve()), ReadOnly=True, AddToRecentFiles=False)
+                doc.Activate()
+                doc.ActiveWindow.View.Type = 3  # Print layout.
         except Exception as exc:
             messagebox.showerror("預覽未完成", str(exc))
 
@@ -941,15 +964,16 @@ class PigSettlementApp:
             voucher = self.ask_voucher_count()
             if voucher is None:
                 return
-            paths = self.create_expense_outputs(export_directory(EXPORT_FOLDER), pay_date, voucher, preview=True)
-            word = win32.gencache.EnsureDispatch('Word.Application')
-            word.Visible = True
-            docs = []
-            for path in paths:
-                doc = word.Documents.Open(str(path.resolve()))
-                doc.ActiveWindow.View.Type = 3
-                docs.append(doc)
-            docs[0].Activate()
+            with self.preview_directory() as preview_dir:
+                paths = self.create_expense_outputs(preview_dir, pay_date, voucher, preview=True)
+                word = win32.gencache.EnsureDispatch('Word.Application')
+                word.Visible = True
+                docs = []
+                for path in paths:
+                    doc = word.Documents.Open(str(path.resolve()), ReadOnly=True, AddToRecentFiles=False)
+                    doc.ActiveWindow.View.Type = 3
+                    docs.append(doc)
+                docs[0].Activate()
         except Exception as exc:
             messagebox.showerror("預覽未完成", str(exc))
 
@@ -968,17 +992,18 @@ class PigSettlementApp:
             return
         try:
             pay_date = roc_date(parse_pay_date(self.ent_pay_date.get()))
-            path = self.create_collection_output(export_directory(EXPORT_FOLDER), pay_date, preview=True)
-            word = win32.gencache.EnsureDispatch('Word.Application')
-            word.Visible = True
-            doc = word.Documents.Open(str(path.resolve()))
-            doc.ActiveWindow.View.Type = 3
-            doc.Activate()
+            with self.preview_directory() as preview_dir:
+                path = self.create_collection_output(preview_dir, pay_date, preview=True)
+                word = win32.gencache.EnsureDispatch('Word.Application')
+                word.Visible = True
+                doc = word.Documents.Open(str(path.resolve()), ReadOnly=True, AddToRecentFiles=False)
+                doc.ActiveWindow.View.Type = 3
+                doc.Activate()
         except Exception as exc:
             messagebox.showerror("預覽未完成", str(exc))
 
     def preview_word_documents(self, pay_date, chinese_voucher, output_dir=None, detail_path=None, expense_paths=None):
-        output_dir = output_dir or export_directory(EXPORT_FOLDER)
+        output_dir = output_dir or export_directory(EXPORT_FOLDER, parse_pay_date(pay_date))
         detail_path = detail_path or self.create_detail_output(output_dir)
         if expense_paths is None:
             expense_paths = self.create_expense_outputs(output_dir, pay_date, chinese_voucher)

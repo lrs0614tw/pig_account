@@ -142,7 +142,9 @@ class InputTests(unittest.TestCase):
              patch.object(self.app, 'export_to_excel_sheet') as export, \
              patch.object(self.app, '_write_cache') as write:
             self.app.preview_detail_only()
-            self.assertEqual(len(list(Path(directory).rglob('預覽_*.docx'))), 1)
+            self.assertEqual(list(Path(directory).iterdir()), [])
+            preview_path = Path(word.return_value.Documents.Open.call_args.args[0])
+            self.assertFalse(preview_path.exists())
             word.return_value.Documents.Open.assert_called_once()
             export.assert_not_called()
             write.assert_not_called()
@@ -158,7 +160,9 @@ class InputTests(unittest.TestCase):
              patch.object(self.app, 'export_to_excel_sheet') as export, \
              patch.object(self.app, '_write_cache') as write:
             self.app.preview_collection_only()
-            self.assertEqual(len(list(Path(directory).rglob('預覽_*.docx'))), 1)
+            self.assertEqual(list(Path(directory).iterdir()), [])
+            preview_path = Path(word.return_value.Documents.Open.call_args.args[0])
+            self.assertFalse(preview_path.exists())
             word.return_value.Documents.Open.assert_called_once()
             export.assert_not_called()
             write.assert_not_called()
@@ -166,6 +170,8 @@ class InputTests(unittest.TestCase):
 
     def test_finalize_keeps_monthly_excel_outside_date_folder(self):
         self.fill()
+        self.app.ent_pay_date.delete(0, tk.END)
+        self.app.ent_pay_date.insert(0, '115-11-25')
         self.app.add_farmer_to_list()
         with TemporaryDirectory() as directory:
             exports = Path(directory) / 'exports'
@@ -188,6 +194,7 @@ class InputTests(unittest.TestCase):
             self.assertEqual(len(list(exports.rglob('2.*.docx'))), 1)
             self.assertEqual(len(list(exports.rglob('3.*.docx'))), 1)
             self.assertEqual(len(list(exports.rglob('0.南投手續費.docx'))), 1)
+            self.assertEqual({p.parent.name for p in exports.rglob('*.docx')}, {'115-11-25'})
             preview.assert_called_once()
             self.assertEqual(self.app.current_farmers, [])
 
@@ -222,7 +229,9 @@ class InputTests(unittest.TestCase):
              patch.object(self.app, 'export_to_excel_sheet') as export, \
              patch.object(self.app, '_write_cache') as write:
             self.app.preview_expenses_only()
-            self.assertEqual(len(list(Path(directory).rglob('預覽_*.docx'))), 2)
+            self.assertEqual(list(Path(directory).iterdir()), [])
+            for call in word.return_value.Documents.Open.call_args_list:
+                self.assertFalse(Path(call.args[0]).exists())
             self.assertEqual(word.return_value.Documents.Open.call_count, 2)
             export.assert_not_called()
             write.assert_not_called()
