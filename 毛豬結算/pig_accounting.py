@@ -331,6 +331,8 @@ class PigSettlementApp:
                    command=self.preview_collection_only).pack(side="left", padx=8)
         ttk.Button(preview_frame, text="開啟輸出資料夾",
                    command=self.open_export_folder).pack(side="left", padx=8)
+        ttk.Button(preview_frame, text="匯入測試草稿",
+                   command=self.import_sample_drafts).pack(side="left", padx=8)
 
     def add_field(self, parent, text, key, r, c):
         ttk.Label(parent, text=text).grid(row=r, column=c, sticky="w", pady=2)
@@ -700,6 +702,8 @@ class PigSettlementApp:
         }
 
         drafts = self._read_cache()
+        if drafts.get(draft_id, {}).get('name'):
+            draft_data['name'] = drafts[draft_id]['name']
         drafts[draft_id] = draft_data
         self._write_cache(drafts)
         self.active_draft_id = draft_id
@@ -715,6 +719,8 @@ class PigSettlementApp:
         for d_id, data in drafts.items():
             total_net = sum(f["net"] for f in data["farmers"])
             display = f"出帳:{display_date(data.get('pay_date','未定'))} - {len(data['farmers'])}筆, ${total_net:,}"
+            if data.get('name'):
+                display = f"{data['name']}｜{display}"
             options.append(display)
             self.draft_lookup[display] = d_id
         self.cbo_drafts["values"] = options
@@ -722,6 +728,26 @@ class PigSettlementApp:
             self.cbo_drafts.current(0)
         else:
             self.cbo_drafts.set("")
+
+    def import_sample_drafts(self):
+        if not self.require_saved_input():
+            return
+        try:
+            sample_path = os.path.join(os.path.dirname(BASE_FOLDER), 'samples', '測試草稿.json')
+            with open(sample_path, encoding='utf-8') as stream:
+                samples = json.load(stream)
+            drafts = self._read_cache()
+            count = 0
+            for key, sample in samples.items():
+                if key not in drafts:
+                    drafts[key] = sample
+                    count += 1
+            if count:
+                self._write_cache(drafts)
+            self.load_draft_list()
+            messagebox.showinfo('測試草稿', f'已匯入 {count} 組測試草稿，既有草稿未覆蓋。\n請從草稿清單選取【測試】資料讀取。\n測試資料若按結案，仍會寫入月份帳本。')
+        except Exception as exc:
+            messagebox.showerror('匯入未完成', str(exc))
 
     def load_selected_draft(self):
         if not self.require_saved_input():

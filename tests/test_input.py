@@ -105,6 +105,35 @@ class InputTests(unittest.TestCase):
         self.assertEqual(self.app.ent_pay_date.get(), '115-11-05')
         self.assertEqual([r['date'] for r in self.app.current_farmers], ['115-10-31', '115-10-30'])
 
+    def test_sample_import_preserves_existing_drafts_and_labels(self):
+        import json
+        samples = json.loads((SOURCE.parents[1] / 'samples/測試草稿.json').read_text('utf-8'))
+        first_id = next(iter(samples))
+        existing = {'real': {'id': 'real', 'pay_date': '115-11-03', 'farmers': []},
+                    first_id: dict(samples[first_id], name='【測試】已修改，請保留')}
+        with patch.object(self.app, '_read_cache', return_value=existing), \
+             patch.object(self.app, '_write_cache') as write, \
+             patch.object(self.app, 'load_draft_list'), \
+             patch.object(app_module.messagebox, 'showinfo'):
+            self.app.import_sample_drafts()
+            saved = write.call_args.args[0]
+            self.assertEqual(len(saved), 6)
+            self.assertEqual(saved[first_id]['name'], '【測試】已修改，請保留')
+            self.assertIn('real', saved)
+            write.reset_mock()
+            self.app.import_sample_drafts()
+            write.assert_not_called()
+        with patch.object(self.app, '_read_cache', return_value=samples):
+            self.app.load_draft_list()
+            self.assertTrue(all('【測試】' in name for name in self.app.cbo_drafts['values']))
+        self.app.active_draft_id = first_id
+        self.app.current_farmers = samples[first_id]['farmers']
+        with patch.object(self.app, '_read_cache', return_value=samples), \
+             patch.object(self.app, '_write_cache') as write, \
+             patch.object(self.app, 'load_draft_list'):
+            self.app.save_as_draft(show_msg=False)
+            self.assertEqual(write.call_args.args[0][first_id]['name'], samples[first_id]['name'])
+
     def test_numbers(self):
         for value, expected in [('1,000', 1000), ('1,000 + 200', 1200), ('', 0)]:
             self.put('total', value)
