@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.env
+.env.*
+~$*
+*.tmp
+exports/*
+!exports/.gitkeep
+毛豬結算/backup/
+
+毛豬結算/pending_batches.json
+毛豬結算/豬款*.xlsm
