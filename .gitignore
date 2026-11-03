@@ -8,6 +8,7 @@ venv/
 ~$*
 *.tmp
 /exports/
+/logs/
 毛豬結算/backup/
 
 毛豬結算/pending_batches.json
