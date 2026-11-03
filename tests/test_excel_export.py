@@ -30,7 +30,7 @@ class NativeExcelTests(unittest.TestCase):
     def test_template_month_append_and_overflow(self):
         import openpyxl
         template = ROOT / '毛豬結算/templates/每日工作頁.xlsm'
-        farmer = dict(farmer='測試', market='南投縣市場', date='2026-11-02', heads=10,
+        farmer = dict(farmer='測試', market='南投縣市場', date='2026-10-31', heads=10,
                       total=10500, market_fee=100, accident=0, fa_fee=10,
                       insurance=0, freight=550, driver='杜虹儀', net=9840)
         with tempfile.TemporaryDirectory() as folder:

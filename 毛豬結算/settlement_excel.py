@@ -20,6 +20,19 @@ def display_date(value):
         return value
 
 
+def parse_roc_input(value):
+    """Strict user input; legacy parsing remains available for saved records."""
+    if not re.fullmatch(r'[0-9]{3}-[0-9]{2}-[0-9]{2}', value):
+        raise ValueError('日期只接受民國 yyy-mm-dd，例如 115-11-03。')
+    year, month, day = map(int, value.split('-'))
+    try:
+        if year < 1:
+            raise ValueError
+        return datetime(year + 1911, month, day)
+    except ValueError as exc:
+        raise ValueError('日期不存在，請輸入有效的民國 yyy-mm-dd 日期。') from exc
+
+
 def parse_pay_date(value, today=None):
     today = today or datetime.today()
     value = value.strip()

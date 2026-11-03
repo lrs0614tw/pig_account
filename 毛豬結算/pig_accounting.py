@@ -8,7 +8,7 @@ from contextlib import contextmanager
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from datetime import datetime
-from settlement_excel import export_monthly, parse_pay_date, roc_date, display_date, monthly_path
+from settlement_excel import export_monthly, parse_pay_date, roc_date, display_date, monthly_path, parse_roc_input
 from settlement_documents import (export_directory, available_path, create_detail_document,
                                   create_expense_document, create_market_fee_document, market_fee_template, create_collection_document)
 import win32com.client as win32
@@ -206,21 +206,22 @@ class PigSettlementApp:
         top_frame = ttk.LabelFrame(self.root, text="批次基本資料", padding=10)
         top_frame.pack(fill="x", padx=10, pady=5)
         
-        ttk.Label(top_frame, text="拍賣日期:").grid(row=0, column=0, sticky="w")
-        self.ent_auction_date = ttk.Entry(top_frame, width=15)
-        self.ent_auction_date.insert(0, roc_date(datetime.today()))
-        self.ent_auction_date.grid(row=0, column=1, padx=5, pady=2)
-        
-        ttk.Label(top_frame, text="結帳/出帳日:").grid(row=0, column=2, sticky="w", padx=(15, 0))
+        ttk.Label(top_frame, text="結帳／出帳日:").grid(row=0, column=0, sticky="w")
         self.ent_pay_date = ttk.Entry(top_frame, width=15)
         self.ent_pay_date.insert(0, roc_date(datetime.today()))
-        self.ent_pay_date.grid(row=0, column=3, padx=5, pady=2)
-        ttk.Label(top_frame, text="(民國年如 115-11-03 或 1103；依出帳月份歸檔)").grid(row=0, column=4, sticky="w", padx=10)
+        self.ent_pay_date.grid(row=0, column=1, padx=5, pady=2)
+        ttk.Label(top_frame, text="民國 yyy-mm-dd，例如 115-11-03；所有統計依出帳日歸檔").grid(row=0, column=2, padx=10)
 
-        farmer_frame = ttk.LabelFrame(self.root, text="新增/修改 豬單明細 (每張豬單可選不同拍賣市場)", padding=10)
+        farmer_frame = ttk.LabelFrame(self.root, text="新增/修改 豬單明細 (每張豬單可填不同拍賣日期與市場)", padding=10)
         farmer_frame.pack(fill="x", padx=10, pady=5)
         
         self.entries = {}
+        ttk.Label(farmer_frame, text="拍賣日期:").grid(row=4, column=0, sticky="w")
+        self.ent_auction_date = ttk.Entry(farmer_frame, width=15)
+        self.ent_auction_date.insert(0, roc_date(datetime.today()))
+        self.ent_auction_date.grid(row=4, column=1, padx=5, pady=2)
+        ttk.Label(farmer_frame, text="民國 yyy-mm-dd").grid(row=4, column=2, columnspan=2, sticky="w")
+
         
         ttk.Label(farmer_frame, text="拍賣市場:").grid(row=0, column=0, sticky="w", pady=2)
         self.cbo_market = ttk.Combobox(farmer_frame, values=MARKET_OPTIONS, width=13, state="readonly")
@@ -267,19 +268,20 @@ class PigSettlementApp:
             self.entries[k].bind("<KeyRelease>", self.calculate_farmer_amounts)
 
         self.btn_add = ttk.Button(farmer_frame, text="加入/更新此筆豬單", command=self.ask_and_add_farmer)
-        self.btn_add.grid(row=4, column=4, columnspan=2, pady=6, sticky="e")
+        self.btn_add.grid(row=5, column=4, columnspan=2, pady=6, sticky="e")
         ttk.Button(farmer_frame, text="取消編輯／清除輸入",
-                   command=self.cancel_input).grid(row=4, column=0, columnspan=2)
+                   command=self.cancel_input).grid(row=5, column=0, columnspan=2)
 
         self.setup_enter_traversal()
 
         list_frame = ttk.LabelFrame(self.root, text="本批次明細清單 (雙擊修改/補款，右鍵可單筆或全部刪除)", padding=10)
         list_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        cols = ("farmer", "payee", "market", "heads", "total", "market_fee", "slip_net", "accident", "fa_fee", "insurance", "freight", "driver", "net")
+        cols = ("date", "farmer", "payee", "market", "heads", "total", "market_fee", "slip_net", "accident", "fa_fee", "insurance", "freight", "driver", "net")
         self.tree = ttk.Treeview(list_frame, columns=cols, show="headings", height=7)
         
         col_defs = [
+            ("date", "拍賣日期", 95),
             ("farmer", "豬農會員", 75), ("payee", "受款帳戶", 95), ("market", "拍賣市場", 80),
             ("heads", "頭數", 45), ("total", "總價款", 80),
             ("market_fee", "市場費用", 70), ("slip_net", "豬單實付(核對)", 85),
@@ -404,7 +406,7 @@ class PigSettlementApp:
 
     def setup_enter_traversal(self):
         seq = [
-            self.ent_auction_date, self.ent_pay_date,
+            self.ent_pay_date, self.ent_auction_date,
             self.cbo_market, self.cbo_farmer, self.cbo_payee,
             self.entries["heads"], self.entries["total"],
             self.entries["market_fee"], self.entries["accident"],
@@ -452,7 +454,7 @@ class PigSettlementApp:
             return
 
         try:
-            parse_pay_date(self.ent_auction_date.get().strip())
+            parse_roc_input(self.ent_auction_date.get())
             for key in ["heads", "total", "market_fee", "accident", "insurance", "freight"]:
                 self._get_int(key)
         except ValueError as exc:
@@ -527,8 +529,8 @@ class PigSettlementApp:
                 "目前清單中尚有未結案資料，是否先【暫存為草稿】再離開？\n\n【是】：儲存草稿並關閉\n【否】：直接離開不儲存\n【取消】：返回視窗"
             )
             if res is True:
-                self.save_as_draft(show_msg=False)
-                self.root.destroy()
+                if self.save_as_draft(show_msg=False):
+                    self.root.destroy()
             elif res is False:
                 self.root.destroy()
             else:
@@ -583,7 +585,7 @@ class PigSettlementApp:
             "farmer": farmer,
             "payee": payee,
             "market": market,
-            "date": display_date(self.ent_auction_date.get().strip()),
+            "date": roc_date(parse_roc_input(self.ent_auction_date.get())),
             "heads": self._get_int("heads"),
             "total": self._get_int("total"),
             "market_fee": self._get_int("market_fee"),
@@ -609,7 +611,7 @@ class PigSettlementApp:
         for f in self.current_farmers:
             slip_net = f["total"] - f["market_fee"]
             self.tree.insert("", "end", values=(
-                f["farmer"], f.get("payee", f["farmer"]), f.get("market", ""),
+                display_date(f.get("date", "")), f["farmer"], f.get("payee", f["farmer"]), f.get("market", ""),
                 f["heads"], f"{f['total']:,}", f"{f['market_fee']:,}",
                 f"{slip_net:,}",
                 f"{f['accident']:,}", f"{f['fa_fee']:,}", f"{f['insurance']:,}",
@@ -680,17 +682,20 @@ class PigSettlementApp:
     def save_as_draft(self, show_msg=True):
         if not self.require_saved_input():
             return
-        auc_date = self.ent_auction_date.get().strip()
-        pay_date = self.ent_pay_date.get().strip()
+        try:
+            pay_date = roc_date(parse_roc_input(self.ent_pay_date.get()))
+        except ValueError as exc:
+            messagebox.showwarning("出帳日期有誤", str(exc))
+            return False
         
         if not self.current_farmers:
             if show_msg:
                 messagebox.showwarning("提示", "目前清單無資料！")
             return
 
-        draft_id = self.active_draft_id or f"{auc_date}_{pay_date or '未定'}_{int(datetime.now().timestamp())}"
+        draft_id = self.active_draft_id or f"{pay_date}_{int(datetime.now().timestamp())}"
         draft_data = {
-            "id": draft_id, "auction_date": auc_date,
+            "id": draft_id,
             "pay_date": pay_date, "farmers": self.current_farmers
         }
 
@@ -699,8 +704,9 @@ class PigSettlementApp:
         self._write_cache(drafts)
         self.active_draft_id = draft_id
         if show_msg:
-            messagebox.showinfo("成功", f"批次 [{auc_date} 出帳:{pay_date or '未定'}] 已成功暫存！")
+            messagebox.showinfo("成功", f"批次 [出帳:{pay_date}] 已成功暫存！")
         self.load_draft_list()
+        return True
 
     def load_draft_list(self):
         drafts = self._read_cache()
@@ -708,7 +714,7 @@ class PigSettlementApp:
         options = []
         for d_id, data in drafts.items():
             total_net = sum(f["net"] for f in data["farmers"])
-            display = f"{display_date(data['auction_date'])} (出帳:{display_date(data.get('pay_date','未定'))}) - {len(data['farmers'])}人, ${total_net:,}"
+            display = f"出帳:{display_date(data.get('pay_date','未定'))} - {len(data['farmers'])}筆, ${total_net:,}"
             options.append(display)
             self.draft_lookup[display] = d_id
         self.cbo_drafts["values"] = options
@@ -730,14 +736,13 @@ class PigSettlementApp:
         draft = self._read_cache().get(d_id)
         if draft:
             self.active_draft_id = d_id
-            self.ent_auction_date.delete(0, tk.END); self.ent_auction_date.insert(0, display_date(draft["auction_date"]))
             self.ent_pay_date.delete(0, tk.END); self.ent_pay_date.insert(0, display_date(draft.get("pay_date", "")))
             self.current_farmers = draft["farmers"]
             for record in self.current_farmers:
-                record.setdefault("date", draft["auction_date"])
+                record["date"] = display_date(record.get("date", draft.get("auction_date", "")))
                 record.setdefault("market", draft.get("market", ""))
             self.refresh_treeview()
-            messagebox.showinfo("讀取成功", f"已載入 [{display_date(draft['auction_date'])}] 草稿！")
+            messagebox.showinfo("讀取成功", f"已載入 [出帳:{display_date(draft.get('pay_date', '未定'))}] 草稿！")
 
     def delete_selected_draft(self):
         if not self.require_saved_input():
@@ -785,12 +790,12 @@ class PigSettlementApp:
             messagebox.showwarning("提示", "無資料可結案！")
             return
 
-        pay_date = self.ent_pay_date.get().strip()
+        pay_date = self.ent_pay_date.get()
         if not pay_date:
             messagebox.showwarning("提示", "請務必填寫「結帳/出帳日」以建立專屬工作表！")
             return
         try:
-            pay_date = roc_date(parse_pay_date(pay_date))
+            pay_date = roc_date(parse_roc_input(pay_date))
         except ValueError as exc:
             messagebox.showwarning("出帳日期有誤", str(exc))
             return
@@ -880,7 +885,7 @@ class PigSettlementApp:
             os.rename(legacy, target)
         return export_monthly(
             EXPORT_FOLDER, os.path.join(TEMPLATE_FOLDER, "每日工作頁.xlsm"),
-            pay_date, self.current_farmers, self.ent_auction_date.get().strip())
+            pay_date, self.current_farmers, "")
 
     def create_detail_output(self, output_dir, preview=False):
         filename = ("預覽_" if preview else "") + "1.毛豬運銷價款明細表.docx"
@@ -960,7 +965,7 @@ class PigSettlementApp:
             messagebox.showwarning("提示", "請先加入至少一筆豬單。")
             return
         try:
-            pay_date = roc_date(parse_pay_date(self.ent_pay_date.get()))
+            pay_date = roc_date(parse_roc_input(self.ent_pay_date.get()))
             voucher = self.ask_voucher_count()
             if voucher is None:
                 return
@@ -991,7 +996,7 @@ class PigSettlementApp:
             messagebox.showwarning("提示", "請先加入至少一筆豬單。")
             return
         try:
-            pay_date = roc_date(parse_pay_date(self.ent_pay_date.get()))
+            pay_date = roc_date(parse_roc_input(self.ent_pay_date.get()))
             with self.preview_directory() as preview_dir:
                 path = self.create_collection_output(preview_dir, pay_date, preview=True)
                 word = win32.gencache.EnsureDispatch('Word.Application')
