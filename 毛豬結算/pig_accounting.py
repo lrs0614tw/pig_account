@@ -17,7 +17,8 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 
 BASE_FOLDER = os.path.dirname(os.path.abspath(__file__))
-CACHE_FILE = os.path.join(BASE_FOLDER, "pending_batches.json")
+LEGACY_CACHE_FILE = os.path.join(BASE_FOLDER, "pending_batches.json")
+CACHE_FILE = os.path.join(BASE_FOLDER, "drafts", "pending_batches.json")
 TEMPLATE_FOLDER = os.path.join(BASE_FOLDER, "templates")
 EXPORT_FOLDER = os.path.join(os.path.dirname(BASE_FOLDER), "exports")
 
@@ -760,6 +761,9 @@ class PigSettlementApp:
             messagebox.showinfo("成功", "該草稿已成功刪除！")
 
     def _read_cache(self):
+        if not os.path.exists(CACHE_FILE) and os.path.isfile(LEGACY_CACHE_FILE):
+            os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+            os.rename(LEGACY_CACHE_FILE, CACHE_FILE)
         if not os.path.exists(CACHE_FILE):
             return {}
         try:
@@ -769,6 +773,7 @@ class PigSettlementApp:
             return {}
 
     def _write_cache(self, data):
+        os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
         with open(CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 

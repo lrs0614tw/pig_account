@@ -36,6 +36,26 @@ class InputTests(unittest.TestCase):
         self.put('total', '10500')
         self.app.auto_match_freight()
 
+    def test_draft_folder_and_legacy_migration(self):
+        import json
+        with TemporaryDirectory() as directory:
+            legacy = Path(directory) / 'pending_batches.json'
+            target = Path(directory) / 'drafts' / 'pending_batches.json'
+            old_data = {'old': {'farmers': [], 'auction_date': '115-11-03'}}
+            legacy.write_text(json.dumps(old_data), encoding='utf-8')
+            with patch.object(app_module, 'CACHE_FILE', str(target)), \
+                 patch.object(app_module, 'LEGACY_CACHE_FILE', str(legacy)):
+                self.assertEqual(self.app._read_cache(), old_data)
+                self.assertTrue(target.exists())
+                self.assertFalse(legacy.exists())
+                new_data = dict(old_data, new={'farmers': []})
+                self.app._write_cache(new_data)
+                self.assertEqual(self.app._read_cache(), new_data)
+                # An older file never replaces an already migrated draft store.
+                legacy.write_text('{}', encoding='utf-8')
+                self.assertEqual(self.app._read_cache(), new_data)
+                self.assertTrue(legacy.exists())
+
     def test_numbers(self):
         for value, expected in [('1,000', 1000), ('1,000 + 200', 1200), ('', 0)]:
             self.put('total', value)
